@@ -699,7 +699,7 @@ price:: {data.get('price')}""",
             member = dummy
 
         m_conf = await self._get_user_conf_group()
-        if member.id not in await m_conf(ctx.author).current():
+        if str(member.id) not in await m_conf(ctx.author).current():
             return await ctx.send("You two aren't married!")
         if not court:
             await ctx.send(
@@ -773,9 +773,9 @@ price:: {data.get('price')}""",
                 await self._withdraw_cookies(ctx.author, aamount)
                 await self._withdraw_cookies(member, tamount)
         async with m_conf(ctx.author).current() as acurrent:
-            acurrent.remove(member.id)
+            acurrent.remove(str(member.id))
         async with m_conf(member).current() as tcurrent:
-            tcurrent.remove(ctx.author.id)
+            tcurrent.remove(str(ctx.author.id))
         async with m_conf(ctx.author).exes() as aexes:
             aexes.append(member.id)
         async with m_conf(member).exes() as texes:
