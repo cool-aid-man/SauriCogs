@@ -715,12 +715,12 @@ price:: {data.get('price')}""",
         if member.id == ctx.author.id:
             return await ctx.send("You cannot divorce yourself!")
   
-        if not isinstance(member, discord.Member):
-            member_obj = self.bot.get_user(member)
+        if isinstance(member, int):
+            # Try to get the user from cache; if not found, try fetching
+            member_obj = self.bot.get_user(member) or await self.bot.fetch_user(member)
             if member_obj is None:
-                return await ctx.send("That user is not in this server; divorcing non-members is not supported.")
-            else:
-                member = member_obj
+                return await ctx.send("I couldn't find that user.")
+            member = member_obj
 
         m_conf = await self._get_user_conf_group()
         if member.id not in await m_conf(ctx.author).current():
