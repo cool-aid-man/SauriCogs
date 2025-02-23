@@ -716,7 +716,7 @@ price:: {data.get('price')}""",
             return await ctx.send("You cannot divorce yourself!")
             
     if not isinstance(member, discord.Member):
-        member_obj = ctx.guild.get_member(member)
+        member_obj = self.bot.get_user(member)
         if member_obj is None:
             # Alternatively, you may choose to simply reject divorces of users not in the server
             return await ctx.send("That user is not in this server; divorcing non-members is not supported.")
