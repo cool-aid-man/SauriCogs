@@ -687,6 +687,17 @@ price:: {data.get('price')}""",
             return await ctx.send("Marriage is not enabled!")
         if member.id == ctx.author.id:
             return await ctx.send("You cannot divorce yourself!")
+        if not hasattr(member, "guild"):
+            # Create a simple dummy member with minimal attributes
+            class DummyMember:
+                pass
+            dummy = DummyMember()
+            dummy.id = member.id
+            dummy.guild = ctx.guild
+            dummy.name = member.name
+            dummy.mention = member.mention
+            member = dummy
+
         m_conf = await self._get_user_conf_group()
         if member.id not in await m_conf(ctx.author).current():
             return await ctx.send("You two aren't married!")
