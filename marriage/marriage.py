@@ -679,7 +679,7 @@ price:: {data.get('price')}""",
     @commands.guild_only()
     @commands.command()
     async def divorce(
-        self, ctx: commands.Context, member: discord.Member, court: bool = False
+        self, ctx: commands.Context, member: discord.User, court: bool = False
     ):
         """Divorce your current spouse"""
         conf = await self._get_conf_group(ctx.guild)
