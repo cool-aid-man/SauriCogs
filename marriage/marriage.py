@@ -578,7 +578,7 @@ price:: {data.get('price')}""",
             else:
                 spouse = mem
             sp_contentment = await m_conf(spouse).contentment()
-            sp_text += f"{spouse.name}:: {sp_contentment}\n"
+            sp_text += f"{spouse.name}: {sp_contentment}\n"
         if sp_text == "":
             sp_text = "None"
         await ctx.send(
