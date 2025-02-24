@@ -7,10 +7,17 @@ import typing
 from redbot.core import Config, checks, commands, bank
 from redbot.core.utils.chat_formatting import humanize_list, box
 from redbot.core.utils.predicates import MessagePredicate
-from discord.ext.commands.converter import RawUserIdConverter
 from typing import Union
 
 from redbot.core.bot import Red
+from discord.ext import commands
+
+class RawUserIdConverter(commands.Converter):
+    async def convert(self, ctx, argument: str) -> int:
+        try:
+            return int(argument)
+        except ValueError:
+            raise commands.BadArgument("User ID must be an integer.")
 
 
 class Marriage(commands.Cog):
