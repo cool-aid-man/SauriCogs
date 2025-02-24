@@ -554,9 +554,7 @@ price:: {data.get('price')}""",
 
     @commands.guild_only()
     @commands.command()
-    async def spouses(
-        self, ctx: commands.Context, member: typing.Optional[discord.Member]
-    ):
+    async def spouses(self, ctx: commands.Context, member: typing.Optional[discord.Member]):
         """Display your or someone else's spouses."""
         conf = await self._get_conf_group(ctx.guild)
         if not await conf.toggle():
@@ -567,16 +565,26 @@ price:: {data.get('price')}""",
         spouses_ids = await m_conf(member).current()
         sp_text = ""
         for s_id in spouses_ids:
-            spouse = self.bot.get_user(s_id)
-            if spouse:
-                sp_contentment = await m_conf(spouse).contentment()
-                sp_text += f"{spouse.name}:: {sp_contentment}\n"
+            # Try to get the member from the guild.
+            mem = ctx.guild.get_member(s_id)
+            if mem is None:
+                # Create a minimal ForcedMember with required attributes.
+                class ForcedMember:
+                    def __init__(self, id, guild):
+                        self.id = id
+                        self.guild = guild
+                        self.name = f"User {id}"
+                spouse = ForcedMember(s_id, ctx.guild)
+            else:
+                spouse = mem
+            sp_contentment = await m_conf(spouse).contentment()
+            sp_text += f"{spouse.name}:: {sp_contentment}\n"
         if sp_text == "":
             sp_text = "None"
         await ctx.send(
             box(
                 f"""= {member.name}'s spouses =
-{sp_text.strip()}""",
+    {sp_text.strip()}""",
                 lang="asciidoc",
             )
         )
