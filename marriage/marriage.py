@@ -694,7 +694,7 @@ price:: {data.get('price')}""",
         if isinstance(member, int):
             member = self.bot.get_user(member) or discord.Object(id=member)
         
-        # Attempt to get the guild member; if not found, spouse isn't in the guild
+        # Try to get the guild member; if not found, the spouse isn't in the guild
         guild_member = ctx.guild.get_member(member.id) if hasattr(member, "id") else None
         # Fallback mention string
         member_mention = member.mention if hasattr(member, "mention") else f"<@{member.id}>"
@@ -709,10 +709,10 @@ price:: {data.get('price')}""",
         if member.id not in await m_conf(ctx.author).current():
             return await ctx.send("You two aren't married!")
         
-        # Instead of sending a separate message, store extra text if spouse isn't in the server.
+        # If the spouse isn't in the guild, prepare extra text and force court divorce
         extra_text = ""
         if not isinstance(guild_member, discord.Member):
-            extra_text = "Spouse is not in the server. Proceeding with forced divorce through the court. "
+            extra_text = "Spouse is not in the server. Proceeding with forced divorce through the court."
             court = True
 
         if not court:
@@ -758,7 +758,7 @@ price:: {data.get('price')}""",
                 court = True
 
         if court:
-            # Forced divorce branch: if spouse isn't in the guild, only penalize the command invoker.
+            # Forced divorce branch: if the spouse isn't in the guild, only penalize the command invoker.
             if not isinstance(guild_member, discord.Member):
                 if await conf.currency() == 0:
                     currency = await bank.get_currency_name(ctx.guild)
@@ -817,15 +817,16 @@ price:: {data.get('price')}""",
         if len(await m_conf(ctx.author).current()) == 0:
             await m_conf(ctx.author).married.clear()
             await m_conf(ctx.author).divorced.set(True)
-        # Only update the spouse's status if they are a guild member.
         if isinstance(guild_member, discord.Member) and len(await m_conf(member).current()) == 0:
             await m_conf(member).married.clear()
             await m_conf(member).divorced.set(True)
         
-        # Send a single final message that includes any extra text.
-        await ctx.send(
-            f"{extra_text}:broken_heart: {ctx.author.mention} and {member_mention} got divorced...\n*{end_amount}.*"
-        )
+        # Build the final message with proper formatting.
+        final_msg = ""
+        if extra_text:
+            final_msg += extra_text + "\n\n"
+        final_msg += f":broken_heart: {ctx.author.mention} and {member_mention} got divorced...\n*{end_amount}.*"
+        await ctx.send(final_msg)
 
     @commands.max_concurrency(1, commands.BucketType.channel, wait=True)
     @commands.guild_only()
