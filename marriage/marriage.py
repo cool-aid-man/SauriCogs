@@ -681,20 +681,18 @@ price:: {data.get('price')}""",
     @commands.guild_only()
     @commands.command()
     async def divorce(
-        self,
-        ctx: commands.Context,
-        member: Union[discord.Member, RawUserIdConverter],
-        court: bool = False
+        self, ctx: commands.Context, member: Union[discord.Member, RawUserIdConverter], court: bool = False
     ):
         """Divorce your current spouse—even if they're not in the server."""
+        
         # Convert raw user ID to a user object if necessary
         if isinstance(member, int):
             member = self.bot.get_user(member) or discord.Object(id=member)
-        # If the user is in the guild, use the guild member object
-        guild_member = ctx.guild.get_member(member.id)
-        if guild_member is not None:
-            member = guild_member
-        # Create a fallback for member mention if not available
+        
+        # Try to get the guild member object if they are in the server
+        guild_member = ctx.guild.get_member(member.id) if isinstance(member, discord.Object) else member
+        
+        # Create a fallback mention string
         member_mention = member.mention if hasattr(member, "mention") else f"<@{member.id}>"
 
         conf = await self._get_conf_group(ctx.guild)
@@ -702,12 +700,13 @@ price:: {data.get('price')}""",
             return await ctx.send("Marriage is not enabled!")
         if member.id == ctx.author.id:
             return await ctx.send("You cannot divorce yourself!")
+        
         m_conf = await self._get_user_conf_group()
         if member.id not in await m_conf(ctx.author).current():
             return await ctx.send("You two aren't married!")
 
-        # If the spouse isn't in the guild, skip confirmation and force court
-        if not isinstance(member, discord.Member):
+        # If the spouse isn't in the guild, skip confirmation and force court divorce
+        if not isinstance(guild_member, discord.Member):
             await ctx.send("Spouse is not in the server. Proceeding with forced divorce through the court.")
             court = True
 
@@ -716,7 +715,7 @@ price:: {data.get('price')}""",
                 f"{ctx.author.mention} wants to divorce you, {member_mention}, do you accept?\n"
                 "If you say no, you will go to the court."
             )
-            pred = MessagePredicate.yes_or_no(ctx, ctx.channel, member)
+            pred = MessagePredicate.yes_or_no(ctx, ctx.channel, guild_member)
             await self.bot.wait_for("message", check=pred)
             if pred.result:
                 default_amount = await conf.marprice()
@@ -727,16 +726,9 @@ price:: {data.get('price')}""",
                 author_multiplier = author_marcount / 2 + 1
                 target_multiplier = target_marcount / 2 + 1
 
-                multiplier = (
-                    target_multiplier
-                    if author_multiplier <= target_multiplier
-                    else author_multiplier
-                )
-                amount = (
-                    int(round(default_amount * multiplier * default_multiplier))
-                    if multiplier != 0
-                    else int(round(default_amount * default_multiplier))
-                )
+                multiplier = max(author_multiplier, target_multiplier)
+                amount = int(round(default_amount * multiplier * default_multiplier))
+                
                 if await conf.currency() == 0:
                     currency = await bank.get_currency_name(ctx.guild)
                     end_amount = f"You both paid {amount} {currency}"
@@ -788,12 +780,14 @@ price:: {data.get('price')}""",
             aexes.append(member.id)
         async with m_conf(member).exes() as texes:
             texes.append(ctx.author.id)
+        
         if len(await m_conf(ctx.author).current()) == 0:
             await m_conf(ctx.author).married.clear()
             await m_conf(ctx.author).divorced.set(True)
         if len(await m_conf(member).current()) == 0:
             await m_conf(member).married.clear()
             await m_conf(member).divorced.set(True)
+        
         await ctx.send(
             f":broken_heart: {ctx.author.mention} and {member_mention} got divorced...\n*{end_amount}.*"
         )
