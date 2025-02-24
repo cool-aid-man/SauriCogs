@@ -690,17 +690,15 @@ price:: {data.get('price')}""",
         self, ctx: commands.Context, member: Union[discord.Member, RawUserIdConverter], court: bool = False
     ):
         """Divorce your current spouse—even if they're not in the server."""
-        
         # Convert raw user ID to a user object if necessary
         if isinstance(member, int):
             member = self.bot.get_user(member) or discord.Object(id=member)
         
-        # Try to get the guild member object if they are in the server
-        guild_member = ctx.guild.get_member(member.id) if isinstance(member, discord.Object) else member
-        
+        # Try to get the guild member if available
+        guild_member = ctx.guild.get_member(member.id) if hasattr(member, "id") else None
         # Create a fallback mention string
         member_mention = member.mention if hasattr(member, "mention") else f"<@{member.id}>"
-
+        
         conf = await self._get_conf_group(ctx.guild)
         if not await conf.toggle():
             return await ctx.send("Marriage is not enabled!")
@@ -710,13 +708,14 @@ price:: {data.get('price')}""",
         m_conf = await self._get_user_conf_group()
         if member.id not in await m_conf(ctx.author).current():
             return await ctx.send("You two aren't married!")
-
-        # If the spouse isn't in the guild, skip confirmation and force court divorce
+        
+        # If spouse is not in the guild, force court divorce.
         if not isinstance(guild_member, discord.Member):
             await ctx.send("Spouse is not in the server. Proceeding with forced divorce through the court.")
             court = True
 
         if not court:
+            # Ask for consent if spouse is in the guild.
             await ctx.send(
                 f"{ctx.author.mention} wants to divorce you, {member_mention}, do you accept?\n"
                 "If you say no, you will go to the court."
@@ -758,25 +757,41 @@ price:: {data.get('price')}""",
                 court = True
 
         if court:
-            court_value = random.randint(1, 100)
-            court_multiplier = court_value / 100
-            if await conf.currency() == 0:
-                currency = await bank.get_currency_name(ctx.guild)
-                abal = await bank.get_balance(ctx.author)
-                tbal = await bank.get_balance(member)
-                aamount = int(round(abal * court_multiplier))
-                tamount = int(round(tbal * court_multiplier))
-                end_amount = f"{ctx.author.name} paid {aamount} {currency}, {member_mention} paid {tamount} {currency}"
-                await bank.withdraw_credits(ctx.author, aamount)
-                await bank.withdraw_credits(member, tamount)
+            # Forced divorce: if the spouse is not in the guild, only take funds from the invoker as a punishment.
+            if not isinstance(guild_member, discord.Member):
+                if await conf.currency() == 0:
+                    currency = await bank.get_currency_name(ctx.guild)
+                    abal = await bank.get_balance(ctx.author)
+                    # Punishment: a fraction of the invoker's balance (using a random multiplier)
+                    aamount = int(round(abal * (random.randint(1, 100) / 100)))
+                    end_amount = f"{ctx.author.name} paid {aamount} {currency} as punishment."
+                    await bank.withdraw_credits(ctx.author, aamount)
+                else:
+                    author_cookies = await self._get_cookies(ctx.author)
+                    aamount = int(round(author_cookies * (random.randint(1, 100) / 100)))
+                    end_amount = f"{ctx.author.name} paid {aamount} :cookie: as punishment."
+                    await self._withdraw_cookies(ctx.author, aamount)
             else:
-                author_cookies = await self._get_cookies(ctx.author)
-                target_cookies = await self._get_cookies(member)
-                aamount = int(round(author_cookies * court_multiplier))
-                tamount = int(round(target_cookies * court_multiplier))
-                end_amount = f"{ctx.author.name} paid {aamount} :cookie:, {member_mention} paid {tamount} :cookie:"
-                await self._withdraw_cookies(ctx.author, aamount)
-                await self._withdraw_cookies(member, tamount)
+                # If spouse is in the guild, process as normal forced divorce.
+                court_value = random.randint(1, 100)
+                court_multiplier = court_value / 100
+                if await conf.currency() == 0:
+                    currency = await bank.get_currency_name(ctx.guild)
+                    abal = await bank.get_balance(ctx.author)
+                    tbal = await bank.get_balance(member)
+                    aamount = int(round(abal * court_multiplier))
+                    tamount = int(round(tbal * court_multiplier))
+                    end_amount = f"{ctx.author.name} paid {aamount} {currency}, {member_mention} paid {tamount} {currency}"
+                    await bank.withdraw_credits(ctx.author, aamount)
+                    await bank.withdraw_credits(member, tamount)
+                else:
+                    author_cookies = await self._get_cookies(ctx.author)
+                    target_cookies = await self._get_cookies(member)
+                    aamount = int(round(author_cookies * court_multiplier))
+                    tamount = int(round(target_cookies * court_multiplier))
+                    end_amount = f"{ctx.author.name} paid {aamount} :cookie:, {member_mention} paid {tamount} :cookie:"
+                    await self._withdraw_cookies(ctx.author, aamount)
+                    await self._withdraw_cookies(member, tamount)
 
         async with m_conf(ctx.author).current() as acurrent:
             acurrent.remove(member.id)
