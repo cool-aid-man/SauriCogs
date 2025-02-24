@@ -10,7 +10,6 @@ from redbot.core.utils.predicates import MessagePredicate
 from typing import Union
 
 from redbot.core.bot import Red
-from discord.ext import commands
 
 class RawUserIdConverter(commands.Converter):
     async def convert(self, ctx, argument: str) -> int:
