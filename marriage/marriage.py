@@ -181,8 +181,8 @@ class Marriage(commands.Cog):
         await conf.toggle.set(target_state)
         await ctx.send(f"Marriage is now {'enabled' if target_state else 'disabled'}.")
 
-    @checks.is_owner()
     @marryset.command(name="currency")
+    @checks.is_owner()
     async def marryset_currency(self, ctx: commands.Context, currency: int):
         """Set the currency that should be used.
 
