@@ -709,7 +709,7 @@ price:: {data.get('price')}""",
         if member.id not in await m_conf(ctx.author).current():
             return await ctx.send("You two aren't married!")
         
-        # Prepare extra message text if spouse isn't in the guild
+        # Instead of sending a separate message, store extra text if spouse isn't in the server.
         extra_text = ""
         if not isinstance(guild_member, discord.Member):
             extra_text = "Spouse is not in the server. Proceeding with forced divorce through the court. "
@@ -758,12 +758,11 @@ price:: {data.get('price')}""",
                 court = True
 
         if court:
-            # Forced divorce branch: if spouse isn't in the guild, only deduct from the command invoker.
+            # Forced divorce branch: if spouse isn't in the guild, only penalize the command invoker.
             if not isinstance(guild_member, discord.Member):
                 if await conf.currency() == 0:
                     currency = await bank.get_currency_name(ctx.guild)
                     abal = await bank.get_balance(ctx.author)
-                    # Punish the invoker by deducting a random fraction (1-100%) of their balance.
                     aamount = int(round(abal * (random.randint(1, 100) / 100)))
                     end_amount = f"{ctx.author.name} paid {aamount} {currency} as punishment."
                     await bank.withdraw_credits(ctx.author, aamount)
@@ -773,7 +772,7 @@ price:: {data.get('price')}""",
                     end_amount = f"{ctx.author.name} paid {aamount} :cookie: as punishment."
                     await self._withdraw_cookies(ctx.author, aamount)
             else:
-                # If spouse is in the guild, process forced divorce normally (both pay a fraction)
+                # If spouse is in the guild, process forced divorce normally (both pay a fraction).
                 court_value = random.randint(1, 100)
                 court_multiplier = court_value / 100
                 if await conf.currency() == 0:
