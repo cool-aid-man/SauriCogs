@@ -7,8 +7,16 @@ import typing
 from redbot.core import Config, checks, commands, bank
 from redbot.core.utils.chat_formatting import humanize_list, box
 from redbot.core.utils.predicates import MessagePredicate
+from typing import Union
 
 from redbot.core.bot import Red
+
+class RawUserIdConverter(commands.Converter):
+    async def convert(self, ctx, argument: str) -> int:
+        try:
+            return int(argument)
+        except ValueError:
+            raise commands.BadArgument("User ID must be an integer.")
 
 
 class Marriage(commands.Cog):
@@ -172,8 +180,8 @@ class Marriage(commands.Cog):
         await conf.toggle.set(target_state)
         await ctx.send(f"Marriage is now {'enabled' if target_state else 'disabled'}.")
 
-    @checks.is_owner()
     @marryset.command(name="currency")
+    @checks.is_owner()
     async def marryset_currency(self, ctx: commands.Context, currency: int):
         """Set the currency that should be used.
 
@@ -546,9 +554,7 @@ price:: {data.get('price')}""",
 
     @commands.guild_only()
     @commands.command()
-    async def spouses(
-        self, ctx: commands.Context, member: typing.Optional[discord.Member]
-    ):
+    async def spouses(self, ctx: commands.Context, member: typing.Optional[discord.Member]):
         """Display your or someone else's spouses."""
         conf = await self._get_conf_group(ctx.guild)
         if not await conf.toggle():
@@ -559,16 +565,26 @@ price:: {data.get('price')}""",
         spouses_ids = await m_conf(member).current()
         sp_text = ""
         for s_id in spouses_ids:
-            spouse = self.bot.get_user(s_id)
-            if spouse:
-                sp_contentment = await m_conf(spouse).contentment()
-                sp_text += f"{spouse.name}:: {sp_contentment}\n"
+            # Try to get the member from the guild.
+            mem = ctx.guild.get_member(s_id)
+            if mem is None:
+                # Create a minimal ForcedMember with required attributes.
+                class ForcedMember:
+                    def __init__(self, id, guild):
+                        self.id = id
+                        self.guild = guild
+                        self.name = f"User {id}"
+                spouse = ForcedMember(s_id, ctx.guild)
+            else:
+                spouse = mem
+            sp_contentment = await m_conf(spouse).contentment()
+            sp_text += f"{spouse.name}: {sp_contentment}\n"
         if sp_text == "":
             sp_text = "None"
         await ctx.send(
             box(
                 f"""= {member.name}'s spouses =
-{sp_text.strip()}""",
+    {sp_text.strip()}""",
                 lang="asciidoc",
             )
         )
@@ -679,23 +695,41 @@ price:: {data.get('price')}""",
     @commands.guild_only()
     @commands.command()
     async def divorce(
-        self, ctx: commands.Context, member: discord.Member, court: bool = False
+        self, ctx: commands.Context, member: Union[discord.Member, RawUserIdConverter], court: bool = False
     ):
-        """Divorce your current spouse"""
+        """Divorce your current spouse—even if they're not in the server."""
+        # Convert raw user ID to a user object if necessary
+        if isinstance(member, int):
+            member = self.bot.get_user(member) or discord.Object(id=member)
+        
+        # Try to get the guild member; if not found, the spouse isn't in the guild
+        guild_member = ctx.guild.get_member(member.id) if hasattr(member, "id") else None
+        # Fallback mention string
+        member_mention = member.mention if hasattr(member, "mention") else f"<@{member.id}>"
+        
         conf = await self._get_conf_group(ctx.guild)
         if not await conf.toggle():
             return await ctx.send("Marriage is not enabled!")
         if member.id == ctx.author.id:
             return await ctx.send("You cannot divorce yourself!")
+        
         m_conf = await self._get_user_conf_group()
         if member.id not in await m_conf(ctx.author).current():
             return await ctx.send("You two aren't married!")
+        
+        # If the spouse isn't in the guild, prepare extra text and force court divorce
+        extra_text = ""
+        if not isinstance(guild_member, discord.Member):
+            extra_text = "Spouse is not in the server. Proceeding with forced divorce through the court."
+            court = True
+
         if not court:
+            # Ask for consent if spouse is in the guild.
             await ctx.send(
-                f"{ctx.author.mention} wants to divorce you, {member.mention}, do you accept?\n"
+                f"{ctx.author.mention} wants to divorce you, {member_mention}, do you accept?\n"
                 "If you say no, you will go to the court."
             )
-            pred = MessagePredicate.yes_or_no(ctx, ctx.channel, member)
+            pred = MessagePredicate.yes_or_no(ctx, ctx.channel, guild_member)
             await self.bot.wait_for("message", check=pred)
             if pred.result:
                 default_amount = await conf.marprice()
@@ -706,78 +740,101 @@ price:: {data.get('price')}""",
                 author_multiplier = author_marcount / 2 + 1
                 target_multiplier = target_marcount / 2 + 1
 
-                multiplier = (
-                    target_multiplier
-                    if author_multiplier <= target_multiplier
-                    else author_multiplier
-                )
-                amount = (
-                    int(round(default_amount * multiplier * default_multiplier))
-                    if multiplier != 0
-                    else int(round(default_amount * default_multiplier))
-                )
+                multiplier = max(author_multiplier, target_multiplier)
+                amount = int(round(default_amount * multiplier * default_multiplier))
+                
                 if await conf.currency() == 0:
                     currency = await bank.get_currency_name(ctx.guild)
                     end_amount = f"You both paid {amount} {currency}"
-                    if not await bank.can_spend(
-                        ctx.author, amount
-                    ) or not await bank.can_spend(member, amount):
+                    if not await bank.can_spend(ctx.author, amount) or not await bank.can_spend(member, amount):
                         return await ctx.send(
                             f"Uh oh, you two cannot afford this... But you can force a court by "
-                            f"doing `{ctx.clean_prefix}divorce {member.mention} yes`"
+                            f"doing `{ctx.clean_prefix}divorce {member_mention} yes`"
                         )
                     await bank.withdraw_credits(ctx.author, amount)
                     await bank.withdraw_credits(member, amount)
                 else:
                     end_amount = f"You both paid {amount} :cookie:"
-                    if not await self._can_spend_cookies(
-                        ctx.author, amount
-                    ) or not await self._can_spend_cookies(member, amount):
+                    if not await self._can_spend_cookies(ctx.author, amount) or not await self._can_spend_cookies(member, amount):
                         return await ctx.send(
                             f"Uh oh, you two cannot afford this... But you can force a court by "
-                            f"doing `{ctx.clean_prefix}divorce {member.mention} yes`"
+                            f"doing `{ctx.clean_prefix}divorce {member_mention} yes`"
                         )
                     await self._withdraw_cookies(ctx.author, amount)
                     await self._withdraw_cookies(member, amount)
             else:
                 court = True
+
         if court:
-            court = random.randint(1, 100)
-            court_multiplier = court / 100
-            if await conf.currency() == 0:
-                currency = await bank.get_currency_name(ctx.guild)
-                abal = await bank.get_balance(ctx.author)
-                tbal = await bank.get_balance(member)
-                aamount = int(round(abal * court_multiplier))
-                tamount = int(round(tbal * court_multiplier))
-                end_amount = f"{ctx.author.name} paid {aamount} {currency}, {member.name} paid {tamount} {currency}"
-                await bank.withdraw_credits(ctx.author, aamount)
-                await bank.withdraw_credits(member, tamount)
+            # Forced divorce branch: if the spouse isn't in the guild, only penalize the command invoker.
+            if not isinstance(guild_member, discord.Member):
+                if await conf.currency() == 0:
+                    currency = await bank.get_currency_name(ctx.guild)
+                    abal = await bank.get_balance(ctx.author)
+                    aamount = int(round(abal * (random.randint(1, 100) / 100)))
+                    end_amount = f"{ctx.author.name} paid {aamount} {currency} as punishment."
+                    await bank.withdraw_credits(ctx.author, aamount)
+                else:
+                    author_cookies = await self._get_cookies(ctx.author)
+                    aamount = int(round(author_cookies * (random.randint(1, 100) / 100)))
+                    end_amount = f"{ctx.author.name} paid {aamount} :cookie: as punishment."
+                    await self._withdraw_cookies(ctx.author, aamount)
             else:
-                author_cookies = await self._get_cookies(ctx.author)
-                target_cookies = await self._get_cookies(member)
-                aamount = int(round(author_cookies * court_multiplier))
-                tamount = int(round(target_cookies * court_multiplier))
-                end_amount = f"{ctx.author.name} paid {aamount} :cookie:, {member.name} paid {tamount} :cookie:"
-                await self._withdraw_cookies(ctx.author, aamount)
-                await self._withdraw_cookies(member, tamount)
+                # If spouse is in the guild, process forced divorce normally (both pay a fraction).
+                court_value = random.randint(1, 100)
+                court_multiplier = court_value / 100
+                if await conf.currency() == 0:
+                    currency = await bank.get_currency_name(ctx.guild)
+                    abal = await bank.get_balance(ctx.author)
+                    tbal = await bank.get_balance(member)
+                    aamount = int(round(abal * court_multiplier))
+                    tamount = int(round(tbal * court_multiplier))
+                    end_amount = f"{ctx.author.name} paid {aamount} {currency}, {member_mention} paid {tamount} {currency}"
+                    await bank.withdraw_credits(ctx.author, aamount)
+                    await bank.withdraw_credits(member, tamount)
+                else:
+                    author_cookies = await self._get_cookies(ctx.author)
+                    target_cookies = await self._get_cookies(member)
+                    aamount = int(round(author_cookies * court_multiplier))
+                    tamount = int(round(target_cookies * court_multiplier))
+                    end_amount = f"{ctx.author.name} paid {aamount} :cookie:, {member_mention} paid {tamount} :cookie:"
+                    await self._withdraw_cookies(ctx.author, aamount)
+                    await self._withdraw_cookies(member, tamount)
+
+        # Update configuration for the command invoker.
         async with m_conf(ctx.author).current() as acurrent:
-            acurrent.remove(member.id)
-        async with m_conf(member).current() as tcurrent:
-            tcurrent.remove(ctx.author.id)
+            if member.id in acurrent:
+                acurrent.remove(member.id)
+        # Only update the spouse's configuration if they are in the guild.
+        if isinstance(guild_member, discord.Member):
+            async with m_conf(member).current() as tcurrent:
+                if ctx.author.id in tcurrent:
+                    tcurrent.remove(ctx.author.id)
+        
+        # Update exes list for the command invoker.
         async with m_conf(ctx.author).exes() as aexes:
-            aexes.append(member.id)
-        async with m_conf(member).exes() as texes:
-            texes.append(ctx.author.id)
+            if member.id not in aexes:
+                aexes.append(member.id)
+        # Only update the spouse's exes list if they are in the guild.
+        if isinstance(guild_member, discord.Member):
+            async with m_conf(member).exes() as texes:
+                if ctx.author.id not in texes:
+                    texes.append(ctx.author.id)
+        
+        # Update married and divorced status for the command invoker.
         if len(await m_conf(ctx.author).current()) == 0:
             await m_conf(ctx.author).married.clear()
             await m_conf(ctx.author).divorced.set(True)
-        if len(await m_conf(member).current()) == 0:
+        if isinstance(guild_member, discord.Member) and len(await m_conf(member).current()) == 0:
             await m_conf(member).married.clear()
             await m_conf(member).divorced.set(True)
-        await ctx.send(
-            f":broken_heart: {ctx.author.mention} and {member.mention} got divorced...\n*{end_amount}.*"
-        )
+        
+        # Build the final message with proper formatting.
+        final_msg = ""
+        if extra_text:
+            final_msg += extra_text + "\n\n"
+        final_msg += f":broken_heart: {ctx.author.mention} and {member_mention} got divorced...\n*{end_amount}.*"
+        await ctx.send(final_msg)
 
     @commands.max_concurrency(1, commands.BucketType.channel, wait=True)
     @commands.guild_only()
